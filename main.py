@@ -20,7 +20,7 @@ async def pipeline_cycle():
     """Runs one complete cycle of Extract, Transform, and Load."""
     logging.info("--- Starting New ETL Cycle ---")
 
-    # PHASE 1: DISCOVERY
+    # PHASE 1: fetching urls
     logging.info("Phase 1: Intercepting Dynamic API URL...")
     dynamic_url = get_dynamic_api_url() 
     if not dynamic_url:
@@ -56,7 +56,7 @@ async def pipeline_cycle():
     return True
 
 async def main():
-    # This is the heartbeat of your 24/7 scraper.
+
     while True:
         success = await pipeline_cycle()
         
@@ -65,7 +65,7 @@ async def main():
         else:
             logging.warning("Cycle failed, but keeping the system alive.")
 
-        # --- THE RANDOM 5 TO 12 HOUR SLEEP ---
+
         wait_time = random.uniform(18000, 43200) 
         logging.info(f"Going to sleep for {wait_time / 3600:.2f} hours. See you soon...")
         await asyncio.sleep(wait_time)

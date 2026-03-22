@@ -7,7 +7,8 @@ from datetime import datetime
 from Data_Base import async_session
 from models import Product, ProductPricingHistory
 
-# --- SETUP ---
+
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 )
@@ -21,7 +22,7 @@ async def get_cleaned_data(filepath: Path | str) -> list[dict]:
     """
     data = []
     try:
-        # We actually use the 'filepath' argument now
+
         with open(filepath, "r", encoding="utf-8") as file:
             for line in file:
                 try:
@@ -47,7 +48,7 @@ async def save_to_db(data: list[dict]) -> None:
         async with async_session() as session:
             for item in data:
                 try:
-                    # 1. BUCKET A: The Product Table (Only native columns)
+
                     product = Product(
                         id=item["id"],
                         name=item["name"],
@@ -55,13 +56,12 @@ async def save_to_db(data: list[dict]) -> None:
                     )
                     await session.merge(product)
 
-                    # 2. BUCKET B: The Pricing History Table
-                    # Convert string to datetime object
+
                     date_obj = datetime.fromisoformat(item["date_posted"])
                     
                     price_history = ProductPricingHistory(
                         product_id=item["id"],
-                        store_id=1,  # Make sure this matches a Store ID in your DB!
+                        store_id=1,  
                         price=item["price"],
                         date_extracted=date_obj
                     )

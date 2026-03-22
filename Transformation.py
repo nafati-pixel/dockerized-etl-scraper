@@ -12,11 +12,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def process_and_cleanup(input_filepath: str, final_output_filepath: str):
+     """"ensures idempotency through creating an intermediate file and appending that file to the final file""""
+
+
+
     logger.info(f"Starting to process file: {input_filepath}")
     
     temp_filepath = final_output_filepath + ".tmp"
 
-    if os.path.exists(temp_filepath):
+    if os.path.exists(temp_filepath): #the new file
         os.remove(temp_filepath)
 
     try:
@@ -25,7 +29,7 @@ def process_and_cleanup(input_filepath: str, final_output_filepath: str):
                 if not line.strip():
                     continue 
                 
-                try:
+                try: # gets a list of the data to validate
                     raw_data = json.loads(line)
                 except json.JSONDecodeError:
                     logger.warning(f"Line {line_number} is broken. Skipping.")
@@ -33,26 +37,25 @@ def process_and_cleanup(input_filepath: str, final_output_filepath: str):
 
                 extraction_date = raw_data.get("extracted_at", "Unknown")
                 
-                # Extract the payload
+
                 raw_payload = raw_data.get("raw_payload", {})
                 
-                # FIXED: Handle dictionary-of-dictionaries format safely
-                if isinstance(raw_payload, dict):
-                    # Grab the actual product data dictionaries, ignoring the string keys
+                
+                if isinstance(raw_payload, dict):#in case we get nested dicts
+
                     products = list(raw_payload.values())
                 elif isinstance(raw_payload, list):
-                    # Fallback just in case some lines actually are lists
+
                     products = raw_payload
                 else:
                     logger.warning(f"Unexpected payload format on line {line_number}")
                     continue
 
                 valid_chunk = []
-                
-                # Loop through the actual product dictionaries
+
+
                 for prod_data in products:
                     try:
-                        # Clean the price: Remove "DT", spaces, and commas
                         raw_price = prod_data.get("price")
                         clean_price = 0.0
                         if raw_price:
@@ -68,15 +71,15 @@ def process_and_cleanup(input_filepath: str, final_output_filepath: str):
                             "date_posted": extraction_date
                         }
                         
-                        # With populate_by_name=True in models.py, this will now work perfectly
-                        item = ScrapedItem(**item_dict)
+
+                        item = ScrapedItem(**item_dict) 
                         valid_chunk.append(item.model_dump())
 
                     except (ValidationError, ValueError) as e:
                         p_id = prod_data.get('id', 'Unknown')
                         logger.error(f"Item {p_id} failed validation/parsing: {e}")
                 
-                # Write results
+
                 if valid_chunk:
                     with open(temp_filepath, 'a', encoding='utf-8') as temp_f:
                         for valid_item in valid_chunk:
@@ -86,7 +89,7 @@ def process_and_cleanup(input_filepath: str, final_output_filepath: str):
         logger.error(f"File not found: {input_filepath}")
         return
 
-    # Replace and Cleanup
+
     try:
         if os.path.exists(temp_filepath):
             os.replace(temp_filepath, final_output_filepath)

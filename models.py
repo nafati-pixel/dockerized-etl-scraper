@@ -6,17 +6,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pydantic import BaseModel, Field, ConfigDict
 
 class Base(DeclarativeBase):
-    """
-    Base abstraction for declarative mapping. 
-    Centralizes metadata management for schema synchronization and migration tracking.
-    """
     pass
 
 class Store(Base):
-    """
-    Entity representing a retail vendor or data source.
-    Includes unique constraints on naming to prevent record duplication during ingestion.
-    """
+
     __tablename__ = "stores"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -28,10 +21,7 @@ class Store(Base):
     )
 
 class Product(Base):
-    """
-    Global product entity. 
-    Uses SKU as a high-cardinality natural key for cross-store reconciliation.
-    """
+
     __tablename__ = "products"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -44,10 +34,7 @@ class Product(Base):
     )
 
 class ProductPricingHistory(Base):
-    """
-    Time-series ledger for product valuation. 
-    Designed for write-heavy ingestion and immutable historical tracking.
-    """
+
     __tablename__ = "product_pricing_history"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -86,10 +73,6 @@ class ProductPricingHistory(Base):
     )
 
 class ProductSchema(BaseModel):
-    """
-    This class is used to check the data we get from the JSON file.
-    If a price is missing or a date is formatted wrong, this will catch the error.
-    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,9 +84,10 @@ class ProductSchema(BaseModel):
 
 
 class ScrapedItem(BaseModel):
-    """This defines the shape of the cleaned data we get from the website."""
+
+
     model_config = ConfigDict(populate_by_name=True)
-    
+
     id: int
     name: str
     sku: str

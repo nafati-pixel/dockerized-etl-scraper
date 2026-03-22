@@ -26,6 +26,9 @@ def get_random_identity():
 
 # --- PHASE 1: THE Extraction ---
 def get_dynamic_api_url():
+
+    """"opens a web page in the background in order to find the right api to call to get the data""""
+
     logging.info("Initializing Selenium Wire...")
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
@@ -38,7 +41,7 @@ def get_dynamic_api_url():
         driver.set_page_load_timeout(55)
         driver.get(target_page)
         
-        time.sleep(5) # Wait for API calls
+        time.sleep(5)
 
         static_base = "opensearch_api/api/productData?ids="
         found_url = None
@@ -64,9 +67,9 @@ async def fetch_product_data(client, url):
 
 # --- THE ENGINE: RUN ONCE ---
 async def run_extraction_task(urls):
-    """
-    Extracts data and saves it to messy_data.jsonl.
-    """
+
+    """ Extracts data and saves it to messy_data.jsonl. """
+
     if not urls:
         logging.warning("No URLs provided to extraction task.")
         return

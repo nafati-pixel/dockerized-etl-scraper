@@ -8,8 +8,7 @@ raw_url = os.getenv("DATABASE_URL")
 if not raw_url:
     raise ValueError("No DATABASE_URL found in .env")
 
-# --- FIX 1: Define defaults OUTSIDE the if-block (Scope safety) ---
-# We assume there are no params first.
+#adding the driver and extracting the params
 Databse_Path = raw_url.replace("postgresql://", "postgresql+asyncpg://")
 params_dict = {}
 
@@ -22,15 +21,15 @@ if "?" in raw_url:
     pairs = params_string.split("&")
     params_dict = {pair.split('=')[0]: pair.split('=')[1] for pair in pairs if '=' in pair}
 
-    # --- FIX 2: Translate keys for asyncpg compatibility ---
+
     if "sslmode" in params_dict:
-        # Move the value from 'sslmode' (bad) to 'ssl' (good)
+
         params_dict["ssl"] = params_dict.pop("sslmode")
     
-    # Remove other keys that asyncpg might reject
+
     params_dict.pop("channel_binding", None)
 
-# Now it is safe to create the engine
+
 engine = create_async_engine(
     Databse_Path,
     connect_args=params_dict
