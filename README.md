@@ -21,5 +21,5 @@ Since this scraper runs inside a Docker container, you will need Docker installe
 
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/nafati-pixel/dockerized-etl-scraper.git](https://github.com/nafati-pixel/dockerized-etl-scraper.git)
+   git clone https://github.com/nafati-pixel/dockerized-etl-scraper.git
    cd dockerized-etl-scraper
