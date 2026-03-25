@@ -5,7 +5,7 @@ Computer hardware pricing in Tunisia can be volatile and difficult to track. Thi
 
 By tracking this data over time and saving it to a relational database, it creates a historical pricing dataset that can be used to spot real discounts, track inflation, and identify restock patterns.
 
-img width="769" height="496" alt="Screenshot_2026-03-25_02-30-36" src="https://github.com/user-attachments/assets/493d1a4d-85c0-4379-a13b-8054f33c1937" />
+<img width="769" height="496" alt="Screenshot_2026-03-25_02-30-36" src="https://github.com/user-attachments/assets/c9b8fe89-af2e-4a86-a1fb-7e95f259a791" />
 
 
 ### 🏗️ The ETL Architecture
