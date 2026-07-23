@@ -35,4 +35,25 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     return Settings()
 
+# General Settings
+LOG_LEVEL = logging.INFO
+MAX_CONCURRENT_REQUESTS = 3
+MAX_RETRIES = 3
+TIMEOUT_SECONDS = 20.0
+
+# Network Settings
+DEFAULT_HEADERS = {
+            "Accept": "application/json, text/html, application/xhtml+xml, */*",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Sec-Ch-Ua": '"Chromium";v="120", "Google Chrome";v="120", "Not?A_Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
 config = get_settings()
