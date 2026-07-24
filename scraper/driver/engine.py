@@ -1,114 +1,133 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-import random
-import json
-from datetime import datetime
-from typing import List, Dict, Any
-from curl_cffi import requests
-from scraper.platforms.mytek import MyTekParser
+import os
+from typing import TYPE_CHECKING, Optional
+from bs4 import BeautifulSoup
+from curl_cffi.requests import AsyncSession
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+import config
 
-class ExtractionEngine:
-    def __init__(self, max_concurrent: int = 2):
-        self.semaphore = asyncio.Semaphore(max_concurrent)
+if TYPE_CHECKING:
+    from driver.interface import BaseWebsiteParser
+
+logger = logging.getLogger(__name__)
+
+# --- Utility Functions ---
+
+def is_valid_page(raw_html: str, expected_slug: str) -> bool:
+    """Verifies the canonical link matches the expected category slug."""
+    if not raw_html:
+        return False
         
-        self.headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
-            "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1"
-        }
+    soup = BeautifulSoup(raw_html, "lxml")
+    canonical_tag = soup.find("link", rel="canonical")
+    
+    if not canonical_tag:
+        return False
+        
+    return expected_slug in canonical_tag.get("href", "")
 
-    async def fetch_page(self, session: requests.AsyncSession, url: str, retries: int = 3) -> str:
-        for attempt in range(retries):
-            try:
-                response = await session.get(url, impersonate="chrome120", headers=self.headers, timeout=15.0)
-                
-                if response.status_code == 200:
-                    return response.text
-                elif response.status_code in (429, 503, 504):
-                    logging.warning(f"Rate limited/error ({response.status_code}) on {url}. Retrying...")
-                    await asyncio.sleep(2 ** attempt)
-                else:
-                    logging.error(f"Failed {url} with status {response.status_code}")
-                    return ""
-            except Exception as e:
-                logging.error(f"Network error on {url}: {e}")
-                await asyncio.sleep(2 ** attempt)
-                
-        return ""
+def is_page_downloaded(output_dir: str, page_number: int) -> bool:
+    """Checks if a page's HTML file already exists."""
+    filepath = os.path.join(output_dir, f"raw_page_{page_number}.html")
+    return os.path.exists(filepath)
 
-    async def scrape_category(self, parser: MyTekParser, session: requests.AsyncSession, category: str, start_url: str) -> List[Dict[str, Any]]:
-        all_records = []
-        current_url = start_url
-        page_num = 1
+def save_raw_html(raw_html: str, output_dir: str, page_number: int) -> str:
+    """Saves the unparsed HTML to a file."""
+    os.makedirs(output_dir, exist_ok=True)
+    filepath = os.path.join(output_dir, f"raw_page_{page_number}.html")
+    
+    with open(filepath, "w", encoding="utf-8") as file:
+        file.write(raw_html)
+        
+    return filepath
 
+# --- Scraper Engine ---
+
+class ScraperEngine:
+    """
+    Asynchronous network engine responsible for fetching web pages,
+    enforcing concurrency limits, executing retries, and controlling pagination.
+    """
+
+    def __init__(self):
+        self.semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_REQUESTS)
+        self.max_retries = config.MAX_RETRIES
+        self.timeout = config.TIMEOUT_SECONDS
+
+    async def fetch_html(self, session: AsyncSession, url: str) -> Optional[str]:
+        """Fetches a single URL with rate-limiting and backoff retries."""
         async with self.semaphore:
-            while current_url:
-                logging.info(f"Scraping {category} - Page {page_num}: {current_url}")
-                
-                await asyncio.sleep(random.uniform(1.5, 3.0))
-                
-                html = await self.fetch_page(session, current_url)
+            for attempt in range(1, self.max_retries + 1):
+                try:
+                    logger.info(f"Fetching [Attempt {attempt}/{self.max_retries}]: {url}")
+                    
+                    response = await session.get(
+                        url,
+                        timeout=self.timeout,
+                        headers=config.DEFAULT_HEADERS,
+                    )
+
+                    if response.status_code == 200:
+                        return response.text
+                    
+                    logger.warning(
+                        f"Non-200 HTTP status ({response.status_code}) received for {url}"
+                    )
+
+                except Exception as err:
+                    logger.error(f"Network error on attempt {attempt} for {url}: {err}")
+
+                # Exponential backoff delay 
+                await asyncio.sleep(attempt * 1.5)
+
+            logger.error(f"Exhausted retries. Failed to retrieve: {url}")
+            return None
+
+    async def run(self, parser: BaseWebsiteParser, expected_slug: str, output_dir: str) -> None:
+        """
+        Executes the extraction loop for any platform parser.
+        Saves raw HTML to disk and handles pagination.
+        """
+        next_url: Optional[str] = parser.start_url
+        page_number = 1
+
+        async with AsyncSession(impersonate="chrome120") as session:
+            while next_url:
+                # Checkpoint: Skip network request if already downloaded
+                if is_page_downloaded(output_dir, page_number):
+                    logger.info(f"Page {page_number} already downloaded. Skipping network request.")
+                    
+                    # Read the local file to find the next page URL
+                    with open(os.path.join(output_dir, f"raw_page_{page_number}.html"), "r", encoding="utf-8") as f:
+                        html = f.read()
+                        
+                    next_url = parser.get_next_page_url(html)
+                    page_number += 1
+                    continue
+
+                # Fetch from network
+                html = await self.fetch_html(session, next_url)
                 if not html:
+                    logger.warning(f"Stopping crawl loop due to fetch error at {next_url}")
                     break
 
-                records = parser.extract_raw_records(html, category)
-                
-                if len(records) == 0:
-                    logging.warning(f"Circuit Breaker triggered: 0 records extracted on {current_url}. Halting category.")
+                # Validate
+                if not is_valid_page(html, expected_slug):
+                    logger.error(f"Validation failed for {next_url}. Possible redirect or bot challenge.")
                     break
 
-                all_records.extend(records)
-                logging.info(f"Extracted {len(records)} items from page {page_num}.")
+                # Save raw data (The 'L' in ELT)
+                save_raw_html(html, output_dir, page_number)
+                logger.info(f"Successfully saved raw HTML for page {page_number}.")
 
+                # Fetch next page URL from parser
                 next_url = parser.get_next_page_url(html)
-                
-                # Dynamic Referer Update
-                session.headers.update({"Referer": current_url})
-                current_url = next_url
-                page_num += 1
+                page_number += 1
 
-        return all_records
+                if next_url:
+                    await asyncio.sleep(1.0)
 
-    async def run(self) -> List[Dict[str, Any]]:
-        parser = MyTekParser()
-        all_data = []
-        
-        async with requests.AsyncSession() as session:
-            tasks = []
-            for category, url in parser.target_categories.items():
-                tasks.append(self.scrape_category(parser, session, category, url))
-            
-            results = await asyncio.gather(*tasks)
-            
-            for category_records in results:
-                all_data.extend(category_records)
-                
-        logging.info(f"Extraction complete. Total records: {len(all_data)}")
-        
-        if all_data:
-            # Bronze Layer Checkpointing
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"raw_extract_{timestamp}.json"
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(all_data, f, ensure_ascii=False, indent=2)
-            logging.info(f"Checkpoint saved to {filename}")
-
-            print("\n--- Sample Extracted Item ---")
-            for key, value in all_data[0].items():
-                print(f"{key}: {value}")
-            print("-" * 29 + "\n")
-            
-        return all_data
-
-if __name__ == "__main__":
-    engine = ExtractionEngine(max_concurrent=2)
-    asyncio.run(engine.run())
+        logger.info(f"Completed raw HTML extraction for '{parser.provider_name}'.")
