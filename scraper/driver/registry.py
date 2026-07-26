@@ -1,16 +1,30 @@
-from typing import Type
-from driver.interface import BaseWebsiteParser
-from driver.platforms.mytek import MyTekAPIParser
+"""Factory registry for dynamic provisioning of parsing strategies."""
 
+from scraper.driver.platforms.mytek import MyTekAPIParser
 
-SCRAPERS: dict[str, Type[BaseWebsiteParser]] = {
+from .interface import RetailerParsingStrategy
+
+# Statically mapped registry of available domain strategies
+_STRATEGY_REGISTRY: dict[str, type[RetailerParsingStrategy]] = {
     "mytek": MyTekAPIParser,
 }
 
-def get_scraper(name: str) -> BaseWebsiteParser:
-    scraper_class = SCRAPERS.get(name.lower())
-    if not scraper_class:
+
+def provision_parsing_strategy(retailer_name: str) -> RetailerParsingStrategy:
+    """
+    Factory mechanism to instantiate a specific parsing strategy.
+    
+    Raises:
+        ValueError: If the requested retailer strategy does not exist in the registry.
+    """
+    normalized_name = retailer_name.lower().strip()
+    strategy_class = _STRATEGY_REGISTRY.get(normalized_name)
+    
+    if strategy_class is None:
+        available_strategies = sorted(_STRATEGY_REGISTRY.keys())
         raise ValueError(
-            f"Scraper '{name}' is not registered. Available scrapers: {list(SCRAPERS.keys())}"
+            f"Extraction strategy for '{normalized_name}' is not registered. "
+            f"Available providers: {available_strategies}"
         )
-    return scraper_class()
+        
+    return strategy_class()

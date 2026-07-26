@@ -1,40 +1,37 @@
+"""Domain contracts for platform-specific extraction strategies."""
+
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-class BaseWebsiteParser(ABC):
-    @property
-    @abstractmethod
-    def provider_name(self) -> str:
-        """Identifier for the retail origin (e.g., 'mytek')."""
-        pass
 
-    @property
-    @abstractmethod
-    def start_url(self) -> str:
-        """The entry-point URL to begin the extraction loop."""
-        pass
+class RetailerParsingStrategy(ABC):
+    """
+    Contract enforcing the Strategy Pattern for platform-specific parsing.
+    Every retailer extraction algorithm must strictly implement this interface.
+    """
 
     @property
     @abstractmethod
-    def base_domain(self) -> str:
-        """
-        The root domain (e.g., 'https://www.mytek.tn').
-        Required to resolve relative href links extracted from the DOM.
-        """
-        pass
+    def retailer_identifier(self) -> str:
+        """Human-readable identifier for this domain entity (e.g. 'mytek')."""
+
+    @property
+    @abstractmethod
+    def entry_point_url(self) -> str:
+        """The foundational URL for initializing the category traversal."""
+
+    @property
+    @abstractmethod
+    def canonical_domain(self) -> str:
+        """Root domain (e.g. 'https://www.mytek.tn') used for resolving relative URIs."""
 
     @abstractmethod
-    def extract_raw_records(self, raw_html: str) -> List[Dict[str, Any]]:
+    def extract_product_entities(self, raw_html_payload: str) -> list[dict[str, Any]]:
         """
-        Extracts item nodes into dictionaries. 
-        Mandatory keys: 'name', 'price', 'product_url'
+        Parses DOM nodes from a raw HTML payload into standardized domain dictionaries.
+        Must yield entities containing at minimum: 'name', 'price', and 'product_url'.
         """
-        pass
 
     @abstractmethod
-    def get_next_page_url(self, raw_html: str) -> Optional[str]:
-        """
-        Parses the DOM for the 'Next Page' button.
-        Returns the absolute URL string, or None if it is the last page.
-        """
-        pass
+    def resolve_pagination_target(self, raw_html_payload: str) -> str | None:
+        """Calculates and returns the absolute URI for the next sequential page, or None."""
