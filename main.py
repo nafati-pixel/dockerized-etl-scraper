@@ -1,79 +1,99 @@
-import sys
-import logging
 import asyncio
-import random
+import logging
+import sys
+from datetime import datetime
 from pathlib import Path
-from Extraction import get_dynamic_api_url, run_extraction_task
-from Transformation import process_and_cleanup
-from load import main as load_to_db
 
-# --- SETUP ---
+from curl_cffi.requests import AsyncSession
+
+from engine import AsynchronousScrapingEngine
+from registry import _STRATEGY_REGISTRY, provision_parsing_strategy
+from transformer import RawPayload
+
+# Configure structured stream logging for stdout runtime tracking
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
 )
-
-BASE_DIR = Path(__file__).resolve().parent
-
-async def pipeline_cycle():
-    """Runs one complete cycle of Extract, Transform, and Load."""
-    logging.info("--- Starting New ETL Cycle ---")
-
-    # PHASE 1: fetching urls
-    logging.info("Phase 1: Intercepting Dynamic API URL...")
-    dynamic_url = get_dynamic_api_url() 
-    if not dynamic_url:
-        logging.error("Could not find source URL. Skipping this cycle.")
-        return False
-
-    # PHASE 2: EXTRACTION
-    logging.info("Phase 2: Extracting data...")
-    try:
-        await run_extraction_task([dynamic_url])
-    except Exception as e:
-        logging.error(f"Extraction Failed: {e}")
-        return False
-
-    # PHASE 3: TRANSFORMATION
-    logging.info("Phase 3: Cleaning Data...")
-    SOURCE_FILE = BASE_DIR / "messy_data.jsonl"
-    FINAL_CLEAN_FILE = BASE_DIR / "clean_data.jsonl"
-    try:
-        process_and_cleanup(str(SOURCE_FILE), str(FINAL_CLEAN_FILE))
-    except Exception as e:
-        logging.error(f"Transformation Error: {e}")
-        return False
-
-    # PHASE 4: LOAD
-    logging.info("Phase 4: Loading Data into Database...")
-    try:
-        await load_to_db()
-    except Exception as e:
-        logging.error(f"Database Load Error: {e}")
-        return False
-
-    return True
-
-async def main():
-
-    while True:
-        success = await pipeline_cycle()
-        
-        if success:
-            logging.info("Cycle completed successfully.")
-        else:
-            logging.warning("Cycle failed, but keeping the system alive.")
+logger = logging.getLogger("Scraper")
 
 
-        wait_time = random.uniform(18000, 43200) 
-        logging.info(f"Going to sleep for {wait_time / 3600:.2f} hours. See you soon...")
-        await asyncio.sleep(wait_time)
+async def main() -> None:
+    """
+    Master orchestration loop. Iterates over registered retailer strategies,
+    executing the full Extract-Transform-Load (ETL) pipeline page-by-page.
+    """
+    targets = list(_STRATEGY_REGISTRY.keys())
+    
+    # Local buffer directory for streaming parsed output without database overhead
+    temp_dir = Path("./temp_output")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    for retailer in targets:
+        try:
+            strategy, scraper_config = provision_parsing_strategy(retailer)
+            engine = AsynchronousScrapingEngine(
+                concurrency=scraper_config.concurrency_limit,
+                request_delay=scraper_config.request_delay,
+            )
+
+            output_file = temp_dir / f"temp_{retailer}_products.jsonl"
+            logger.info(f"Starting ETL pipeline for: '{retailer}' -> Output: {output_file}")
+
+            async with AsyncSession(impersonate="chrome120") as session:
+                target_url = strategy.entry_point_url
+                page_count = 0
+
+                # Open target file in append mode to write incremental records per page
+                with open(output_file, "a", encoding="utf-8") as f:
+                    while target_url and page_count < 50:
+                        page_count += 1
+
+                        # EXTRACT: Fetch HTML network payload via curl_cffi
+                        html, status_code = await engine.fetch_network_payload(session, target_url)
+                        if not html or status_code != 200:
+                            logger.error(f"[E] Extraction failed at {target_url}")
+                            break
+
+                        raw_payload = RawPayload(
+                            url=target_url,
+                            content=html,
+                            status_code=status_code,
+                            fetched_at=datetime.now(),
+                        )
+
+                        # TRANSFORM: Parse DOM & validate into Pydantic models
+                        transform_result = strategy.transform(raw_payload)
+                        logger.info(
+                            f"[T] Transformed {len(transform_result.successful_items)} records "
+                            f"({transform_result.failed_count} failures logged to DLQ)"
+                        )
+
+                        # Stream validated JSON lines to local disk
+                        if transform_result.successful_items:
+                            for item in transform_result.successful_items:
+                                f.write(item.model_dump_json() + "\n")
+                            f.flush()  # Force OS buffer write to prevent data loss on crash
+                            logger.info(f"[L] Loaded {len(transform_result.successful_items)} items to {output_file.name}")
+
+                        # Resolve pagination target anchor for next iteration
+                        target_url = strategy.resolve_pagination_target(html)
+                        if target_url and scraper_config.request_delay > 0:
+                            await asyncio.sleep(scraper_config.request_delay)
+
+        except Exception as err:
+            logger.critical(f"Fatal error in pipeline for '{retailer}': {err}", exc_info=True)
+
 
 if __name__ == "__main__":
+    # Windows Bug Fix: Python 3.8+ on Windows defaults to ProactorEventLoop, which causes 
+    # asynchronous socket driver conflicts with curl_cffi's underlying C-bindings (libcurl).
+    # Explicitly setting WindowsSelectorEventLoopPolicy restores selector-based loop compatibility.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logging.info("System killed manually by user.")
-    except Exception as e:
-        logging.critical(f"Fatal System Error: {e}")
+        logger.warning("Pipeline execution interrupted by user.")
